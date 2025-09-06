@@ -1,11 +1,219 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Monkeytype Clone</title>
-  <script type="module" src="/src/main.tsx"></script>
-  <link href="/src/index.css" rel="stylesheet">
+  <style>
+    body {
+      background: #1a1a1a;
+      color: #eee;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding: 2rem;
+    }
+    .word-container {
+      display: flex;
+      flex-wrap: wrap;
+      max-width: 800px;
+      gap: 0.5rem;
+      margin: 2rem 0;
+    }
+    .word {
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+    }
+    .current { text-decoration: underline; }
+    .correct { color: #0f0; }
+    .wrong { color: #f00; }
+    input {
+      padding: 0.5rem;
+      font-size: 1rem;
+      width: 400px;
+      outline: none;
+      border-radius: 4px;
+      border: none;
+      background: #333;
+      color: #eee;
+    }
+    button {
+      padding: 0.5rem 1rem;
+      margin: 0.5rem;
+      border: none;
+      border-radius: 4px;
+      background: #555;
+      color: #eee;
+      cursor: pointer;
+    }
+    .end-screen { text-align: center; margin-top: 2rem; }
+  </style>
 </head>
-<body class="bg-neutral-900 text-neutral-100 font-mono"></body>
+<body>
+
+<h1>Monkeytype Clone</h1>
+
+<div>
+  <label>Mode: </label>
+  <select id="mode-select">
+    <option value="time-15">15 Seconds</option>
+    <option value="time-30">30 Seconds</option>
+    <option value="time-60">60 Seconds</option>
+    <option value="words-10">10 Words</option>
+    <option value="words-25">25 Words</option>
+    <option value="words-100">100 Words</option>
+  </select>
+  <button id="start-btn">Start Test</button>
+  <button id="view-stats">View Stats</button>
+</div>
+
+<div id="timer" style="margin-top:1rem;font-size:1.5rem;"></div>
+<div class="word-container" id="word-container"></div>
+<input type="text" id="typing-input" autocomplete="off" disabled />
+
+<div class="end-screen" id="end-screen" style="display:none;"></div>
+
+<script>
+// --- Wordlist (Monkeytype English 1k) ---
+const WORDS = [
+  "the","be","and","of","a","in","to","have","it","I","that","for","you","he","with",
+  "on","do","say","this","they","at","but","we","his","from","that","not","by","she",
+  "or","as","what","go","their","can","who","get","if","would","her","all","my","make",
+  "about","know","will","up","one","time","there","year","so","think","when","which",
+  "them","some","me","people","take","out","into","just","see","him","your","come","could",
+  "now","than","like","other","how","then","its","our","two","more","these","want","way",
+  "look","first","also","new","because","day","more","use","no","man","find","here","thing",
+  "give","many","well"
+]; // shortened for brevity, add full 1k if desired
+
+// --- Elements ---
+const wordContainer = document.getElementById("word-container");
+const input = document.getElementById("typing-input");
+const timerEl = document.getElementById("timer");
+const startBtn = document.getElementById("start-btn");
+const modeSelect = document.getElementById("mode-select");
+const endScreen = document.getElementById("end-screen");
+const viewStatsBtn = document.getElementById("view-stats");
+
+// --- Variables ---
+let words = [];
+let currentIndex = 0;
+let errors = 0;
+let correctChars = 0;
+let timer = 0;
+let interval = null;
+let modeType = "time"; // time or words
+let modeValue = 15;    // seconds or word count
+
+// --- Functions ---
+function shuffleWords(count) {
+  const arr = [];
+  for (let i=0;i<count;i++) {
+    arr.push(WORDS[Math.floor(Math.random()*WORDS.length)]);
+  }
+  return arr;
+}
+
+function renderWords() {
+  wordContainer.innerHTML = "";
+  words.forEach((word,i)=>{
+    const span = document.createElement("span");
+    span.textContent = word;
+    span.className = "word" + (i===currentIndex?" current":"");
+    wordContainer.appendChild(span);
+  });
+}
+
+function startTest() {
+  const [type,value] = modeSelect.value.split("-");
+  modeType = type;
+  modeValue = Number(value);
+  currentIndex = 0;
+  errors = 0;
+  correctChars = 0;
+  endScreen.style.display = "none";
+  input.disabled = false;
+  input.value = "";
+  input.focus();
+
+  const wordCount = modeType==="words"?modeValue:200;
+  words = shuffleWords(wordCount);
+  renderWords();
+
+  if(modeType==="time") {
+    timer = modeValue;
+    timerEl.textContent = `${timer}s`;
+    interval = setInterval(()=>{
+      timer--;
+      timerEl.textContent = `${timer}s`;
+      if(timer<=0){
+        clearInterval(interval);
+        finishTest();
+      }
+    },1000);
+  } else {
+    timerEl.textContent = "";
+  }
+}
+
+function finishTest() {
+  input.disabled = true;
+  const totalChars = words.slice(0,modeType==="words"?modeValue:words.length).join(" ").length;
+  const wpm = Math.round((correctChars/5)/(modeType==="time"?modeValue/60:1));
+  const accuracy = Math.round((correctChars/(correctChars + errors*5))*100);
+
+  // Save personal bests
+  const key = modeSelect.value;
+  const stats = JSON.parse(localStorage.getItem("typingStats")||"{}");
+  if(!stats[key] || wpm > stats[key].wpm){
+    stats[key]={wpm,accuracy};
+    localStorage.setItem("typingStats",JSON.stringify(stats));
+  }
+
+  endScreen.innerHTML = `<h2>Test Finished!</h2>
+    <p>WPM: ${wpm}</p>
+    <p>Accuracy: ${accuracy}%</p>
+    <button onclick="startTest()">Retry</button>`;
+  endScreen.style.display = "block";
+}
+
+// --- Input handler ---
+input.addEventListener("keydown", (e)=>{
+  if(e.key===" " || e.key==="Enter"){
+    e.preventDefault();
+    const currentWord = words[currentIndex];
+    const typedWord = input.value.trim();
+    if(typedWord!==currentWord) errors++;
+    else correctChars += currentWord.length;
+    currentIndex++;
+    if(modeType==="words" && currentIndex>=modeValue){
+      finishTest();
+    } else if(currentIndex>=words.length){
+      finishTest();
+    } else {
+      renderWords();
+      input.value="";
+    }
+  }
+});
+
+// --- Stats viewer ---
+viewStatsBtn.addEventListener("click", ()=>{
+  const stats = JSON.parse(localStorage.getItem("typingStats")||"{}");
+  let html = "<h2>Personal Bests</h2>";
+  if(Object.keys(stats).length===0) html+="<p>No stats yet.</p>";
+  else html+="<ul>"+Object.entries(stats).map(([k,v])=>`<li>${k}: WPM ${v.wpm}, Accuracy ${v.accuracy}%</li>`).join("")+"</ul>";
+  endScreen.innerHTML = html + '<button onclick="endScreen.style.display=\'none\'">Close</button>';
+  endScreen.style.display="block";
+});
+
+// --- Start button ---
+startBtn.addEventListener("click", startTest);
+
+</script>
+</body>
 </html>
